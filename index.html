@@ -4,52 +4,129 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CSV to JSON Converter</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
   <style>
-    body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; font: 16px system-ui, sans-serif; }
-    form { display: flex; gap: .5rem; flex-wrap: wrap; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    header { border-bottom: 1px solid #ddd; margin-bottom: 1.5rem; padding-bottom: 1rem; }
+    h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+    .meta { margin: 0; color: #555; }
+    form { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     button { padding: .5rem 1rem; cursor: pointer; }
-    pre { padding: 1rem; background: #f5f5f5; overflow-x: auto; }
+    pre { background: #f5f5f5; padding: 1rem; border-radius: 6px; overflow-x: auto; min-height: 3rem; }
     .error { color: #b00020; }
+    #status { color: #555; font-size: .9rem; }
   </style>
 </head>
 <body>
   <header>
-    <h1>SEAN FREDRIK CANON</h1>
-    <p class="meta">Tuesday & Thursday 3:00 PM - 5:30 PM</p>
+    <h1>YOUR FULL NAME</h1>
+    <p class="meta">Schedule: YOUR SCHEDULE (e.g. Mon/Wed 1:00 PM - 4:00 PM)</p>
   </header>
 
   <h2>CSV to JSON Converter</h2>
+  <p id="status">Loading Python...</p>
   <form id="form">
     <input type="file" id="file" accept=".csv" required>
-    <button type="submit">Convert</button>
+    <button type="submit" id="convert" disabled>Convert</button>
     <button type="button" id="download" disabled>Download JSON</button>
   </form>
 
   <h3>Output</h3>
   <pre id="output">Upload a CSV file to see the JSON here.</pre>
 
+  <script type="text/python-source" id="pycode">
+import csv, io, json
+
+MAX_ROWS = 2  # only the first two data rows are used
+
+PROGRAMS = {
+    "BSIT": "Bachelor of Science in Information Technology",
+    "BSCS": "Bachelor of Science in Computer Science",
+    "BSIS": "Bachelor of Science in Information Systems",
+    "BSBA": "Bachelor of Science in Business Administration",
+    "BSA": "Bachelor of Science in Accountancy",
+    "BSN": "Bachelor of Science in Nursing",
+    "BSED": "Bachelor of Science in Education",
+    "BSCE": "Bachelor of Science in Civil Engineering",
+    "BSCPE": "Bachelor of Science in Computer Engineering",
+    "BSHM": "Bachelor of Science in Hospitality Management",
+    "BSTM": "Bachelor of Science in Tourism Management",
+    "BSPSY": "Bachelor of Science in Psychology",
+}
+
+def capitalize_first(v):
+    v = (v or "").strip()
+    return v[:1].upper() + v[1:]
+
+def to_int(v):
+    return int(str(v).strip())
+
+def to_money(v):
+    return round(float(str(v).strip().replace(",", "").replace("$", "").replace("₱", "")), 2)
+
+def full_program(c):
+    c = (c or "").strip()
+    return PROGRAMS.get(c.upper(), c)
+
+def transform(row):
+    return {
+        "studentId": to_int(row["student_id"]),
+        "firstName": capitalize_first(row["first_name"]),
+        "lastName": capitalize_first(row["last_name"]),
+        "program": full_program(row["course"]),
+        "yearLevel": to_int(row["year_level"]),
+        "emailAddress": row["email"].strip().lower(),
+        "outstandingBalance": to_money(row["tuition_balance"]),
+    }
+
+def convert(text):
+    text = text.lstrip("﻿")
+    reader = csv.DictReader(io.StringIO(text))
+    reader.fieldnames = [f.strip().lower() for f in (reader.fieldnames or [])]
+    result = []
+    for i, row in enumerate(reader):
+        if i >= MAX_ROWS:
+            break
+        result.append(transform(row))
+    return json.dumps(result, indent=2, ensure_ascii=False)
+  </script>
+
   <script>
-    const form = document.getElementById("form");
     const output = document.getElementById("output");
+    const statusEl = document.getElementById("status");
+    const convertBtn = document.getElementById("convert");
     const downloadBtn = document.getElementById("download");
+    let pyConvert = null;
     let jsonText = "";
 
-    form.addEventListener("submit", async (e) => {
+    async function init() {
+      try {
+        const pyodide = await loadPyodide();
+        pyodide.runPython(document.getElementById("pycode").textContent);
+        pyConvert = pyodide.globals.get("convert");
+        statusEl.textContent = "Python ready.";
+        convertBtn.disabled = false;
+      } catch (err) {
+        statusEl.textContent = "Failed to load Python: " + err.message;
+      }
+    }
+    init();
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const data = new FormData();
-      data.append("file", document.getElementById("file").files[0]);
       output.classList.remove("error");
       downloadBtn.disabled = true;
       try {
-        const res = await fetch("/upload", { method: "POST", body: data });
-        const body = await res.text();
-        if (!res.ok) throw new Error(JSON.parse(body).error);
-        jsonText = body;
-        output.textContent = body;
+        const text = await document.getElementById("file").files[0].text();
+        jsonText = pyConvert(text);
+        output.textContent = jsonText;
         downloadBtn.disabled = false;
       } catch (err) {
         output.classList.add("error");
-        output.textContent = err.message;
+        const msg = String(err.message || err);
+        output.textContent = msg.includes("KeyError")
+          ? "Missing an expected column. Check the CSV headers."
+          : "Could not convert CSV: " + msg.split("\n").filter(Boolean).pop();
       }
     });
 
