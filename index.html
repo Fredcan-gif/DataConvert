@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSV to JSON Converter</title>
+  <style>
+    body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; font: 16px system-ui, sans-serif; }
+    form { display: flex; gap: .5rem; flex-wrap: wrap; }
+    button { padding: .5rem 1rem; cursor: pointer; }
+    pre { padding: 1rem; background: #f5f5f5; overflow-x: auto; }
+    .error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SEAN FREDRIK CANON</h1>
+    <p class="meta">Tuesday & Thursday 3:00 PM - 5:30 PM</p>
+  </header>
+
+  <h2>CSV to JSON Converter</h2>
+  <form id="form">
+    <input type="file" id="file" accept=".csv" required>
+    <button type="submit">Convert</button>
+    <button type="button" id="download" disabled>Download JSON</button>
+  </form>
+
+  <h3>Output</h3>
+  <pre id="output">Upload a CSV file to see the JSON here.</pre>
+
+  <script>
+    const form = document.getElementById("form");
+    const output = document.getElementById("output");
+    const downloadBtn = document.getElementById("download");
+    let jsonText = "";
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = new FormData();
+      data.append("file", document.getElementById("file").files[0]);
+      output.classList.remove("error");
+      downloadBtn.disabled = true;
+      try {
+        const res = await fetch("/upload", { method: "POST", body: data });
+        const body = await res.text();
+        if (!res.ok) throw new Error(JSON.parse(body).error);
+        jsonText = body;
+        output.textContent = body;
+        downloadBtn.disabled = false;
+      } catch (err) {
+        output.classList.add("error");
+        output.textContent = err.message;
+      }
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([jsonText], { type: "application/json" }));
+      a.download = "students.json";
+      a.click();
+    });
+  </script>
+</body>
+</html>
